@@ -68,7 +68,6 @@ func NewStorageClient(cfg Config, schemaCfg chunk.SchemaConfig) (*server, error)
 		return nil, errors.WithStack(err)
 	}
 
-
 	return client, nil
 }
 
@@ -135,8 +134,11 @@ func (s *server) DeleteChunks(ctx context.Context, chunkID *grpc.ChunkID) (*empt
 
 func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.GrpcStore_GetChunksServer) error {
 	s.Logger.Info("performing get chunks.")
-	var err error
-	fetchedChunks := &grpc.GetChunksRequest{Chunks: []*grpc.Chunk{}}
+	var (
+		chunks []*grpc.Chunk
+		size   int
+		err    error
+	)
 	for _, chunkData := range input.Chunks {
 		rows, err := s.Session.QueryContext(context.Background(), fmt.Sprintf("SELECT value FROM %s WHERE hash = ?", chunkData.TableName), chunkData.Key)
 		if err != nil {
@@ -150,20 +152,36 @@ func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.Grp
 			}
 
 			chk.Key = chunkData.Key
-			fetchedChunks.Chunks = append(fetchedChunks.Chunks, chk)
+			chunks = append(chunks, chk)
+			size += len(chk.Encoded)
+			if size > 1024*1024*4/10*9 { 
+				// 4MiB / 10 * 9 = 3.60 MiB, leaves the room for other data fields
+				// and make response size being less than 4 MiB (which gRPC recommand limitations)
+				if err = chunksStreamer.Send(
+					&grpc.GetChunksResponse{
+						Chunks: chunks,
+					},
+				); err != nil {
+					s.Logger.Error("Unable to stream the results")
+					return err
+				}
+				chunks = nil
+				size = 0
+			}
 		}
 	}
 
-	// you can add custom logic here to break chunks to into smaller chunks and stream.
-	// If size of chunks is large.
-	response := &grpc.GetChunksResponse{Chunks: fetchedChunks.Chunks}
-	err = chunksStreamer.Send(response)
-	if err != nil {
-		s.Logger.Error("Unable to stream the results")
-		return err
+	if len(chunks) > 0 {
+		if err = chunksStreamer.Send(
+			&grpc.GetChunksResponse{
+				Chunks: chunks,
+			},
+		); err != nil {
+			s.Logger.Error("Unable to stream the results")
+			return err
+		}
 	}
-
-	return err
+	return nil
 }
 
 func (s *server) Stop(context.Context, *empty.Empty) (*empty.Empty, error) {
