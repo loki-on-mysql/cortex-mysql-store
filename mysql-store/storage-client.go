@@ -154,9 +154,16 @@ func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.Grp
 			chk.Key = chunkData.Key
 			chunks = append(chunks, chk)
 			size += len(chk.Encoded)
-			if size > 1024*1024*4/10*9 { 
+			if size > 1024*1024*4/10*8 {
+				var last *grpc.Chunk
 				// 4MiB / 10 * 9 = 3.60 MiB, leaves the room for other data fields
 				// and make response size being less than 4 MiB (which gRPC recommand limitations)
+				if len(chunks) > 1 && size > 1024*1024*4/10*9 {
+					last = chunks[len(chunks)-1]
+					chunks = chunks[:len(chunks)-1]
+				} else {
+					s.Logger.Warn("response is too large")
+				}
 				if err = chunksStreamer.Send(
 					&grpc.GetChunksResponse{
 						Chunks: chunks,
@@ -167,6 +174,10 @@ func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.Grp
 				}
 				chunks = nil
 				size = 0
+				if last != nil {
+					chunks = append(chunks, last)
+					size += len(last.Encoded)
+				}
 			}
 		}
 	}

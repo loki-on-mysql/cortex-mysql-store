@@ -81,9 +81,17 @@ func (s *server) QueryIndex(query *grpc.QueryIndexRequest, queryStreamer grpc.Gr
 		bs = append(bs, b)
 		size += len(b.RangeValue)
 		size += len(b.Value)
-		if size > 1024*1024*4/10*9 {
+
+		if size > 1024*1024*4/10*8 {
+			var last *grpc.Row
 			// 4MiB / 10 * 9 = 3.60 MiB, leaves the room for other data fields
 			// and make response size being less than 4 MiB (which gRPC recommand limitations)
+			if len(bs) > 1 && size > 1024*1024*4/10*9 {
+				last = bs[len(bs)-1]
+				bs = bs[:len(bs)-1]
+			} else {
+				s.Logger.Warn("response is too large")
+			}
 			if err = queryStreamer.Send(
 				&grpc.QueryIndexResponse{Rows: bs},
 			); err != nil {
@@ -92,6 +100,11 @@ func (s *server) QueryIndex(query *grpc.QueryIndexRequest, queryStreamer grpc.Gr
 			}
 			bs = nil
 			size = 0
+			if last != nil {
+				bs = append(bs, last)
+				size += len(last.RangeValue)
+				size += len(last.Value)
+			}
 		}
 
 	}
