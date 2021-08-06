@@ -183,6 +183,9 @@ func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.Grp
 	}
 
 	if len(chunks) > 0 {
+		if size > 1024*1024*4/10*9 {
+			s.Logger.Warn("response is too large")
+		}
 		if err = chunksStreamer.Send(
 			&grpc.GetChunksResponse{
 				Chunks: chunks,

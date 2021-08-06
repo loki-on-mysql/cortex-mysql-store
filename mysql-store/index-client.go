@@ -110,6 +110,9 @@ func (s *server) QueryIndex(query *grpc.QueryIndexRequest, queryStreamer grpc.Gr
 	}
 
 	if len(bs) > 0 {
+		if size > 1024*1024*4/10*9 {
+			s.Logger.Warn("response is too large")
+		}
 		if err = queryStreamer.Send(
 			&grpc.QueryIndexResponse{Rows: bs},
 		); err != nil {
