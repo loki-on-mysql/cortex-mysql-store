@@ -67,9 +67,10 @@ func (s *server) QueryIndex(query *grpc.QueryIndexRequest, queryStreamer grpc.Gr
 		return err
 	}
 
-	b1 := &grpc.QueryIndexResponse{
-		Rows: []*grpc.Row{},
-	}
+	var (
+		bs   []*grpc.Row
+		size int
+	)
 	for rows.Next() {
 		b := &grpc.Row{}
 		err = rows.Scan(&b.RangeValue, &b.Value)
@@ -77,15 +78,47 @@ func (s *server) QueryIndex(query *grpc.QueryIndexRequest, queryStreamer grpc.Gr
 			s.Logger.Error("failed to scan row in query pages", zap.Error(err))
 			return err
 		}
+		bs = append(bs, b)
+		size += len(b.RangeValue)
+		size += len(b.Value)
 
-		b1.Rows = append(b1.Rows, b)
+		if size > 1024*1024*4/10*8 {
+			var last *grpc.Row
+			// 4MiB / 10 * 9 = 3.60 MiB, leaves the room for other data fields
+			// and make response size being less than 4 MiB (which gRPC recommand limitations)
+			if len(bs) > 1 && size > 1024*1024*4/10*9 {
+				last = bs[len(bs)-1]
+				bs = bs[:len(bs)-1]
+			} else {
+				s.Logger.Warn("response is too large")
+			}
+			if err = queryStreamer.Send(
+				&grpc.QueryIndexResponse{Rows: bs},
+			); err != nil {
+				s.Logger.Error("Unable to stream the results")
+				return err
+			}
+			bs = nil
+			size = 0
+			if last != nil {
+				bs = append(bs, last)
+				size += len(last.RangeValue)
+				size += len(last.Value)
+			}
+		}
+
 	}
 
-	// you can add custom logic here to break rows and send as stream instead of sending all at once.
-	err = queryStreamer.Send(b1)
-	if err != nil {
-		s.Logger.Error("Unable to stream the results")
-		return err
+	if len(bs) > 0 {
+		if size > 1024*1024*4/10*9 {
+			s.Logger.Warn("response is too large")
+		}
+		if err = queryStreamer.Send(
+			&grpc.QueryIndexResponse{Rows: bs},
+		); err != nil {
+			s.Logger.Error("Unable to stream the results")
+			return err
+		}
 	}
 
 	return nil
