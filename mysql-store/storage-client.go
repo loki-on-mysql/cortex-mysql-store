@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/VineethReddy02/cortex-mysql-store/grpc"
-	"github.com/golang/protobuf/ptypes/empty"
 	"strconv"
 	"time"
 
+	"github.com/VineethReddy02/cortex-mysql-store/grpc"
 	"github.com/cortexproject/cortex/pkg/chunk"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -111,6 +111,7 @@ func (s *server) session() error {
 
 	s.Session = db
 
+	s.Logger.Info("mysql connected")
 	return nil
 }
 
@@ -162,14 +163,15 @@ func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.Grp
 					last = chunks[len(chunks)-1]
 					chunks = chunks[:len(chunks)-1]
 				} else {
-					s.Logger.Warn("response is too large")
+					s.Logger.Warn("peer response is too large")
 				}
+				s.Logger.Info("send peer chunks", zap.Int("len", len(chunks)))
 				if err = chunksStreamer.Send(
 					&grpc.GetChunksResponse{
 						Chunks: chunks,
 					},
 				); err != nil {
-					s.Logger.Error("Unable to stream the results")
+					s.Logger.Error("Unable to stream the peer results", zap.Error(err))
 					return err
 				}
 				chunks = nil
@@ -186,12 +188,13 @@ func (s *server) GetChunks(input *grpc.GetChunksRequest, chunksStreamer grpc.Grp
 		if size > 1024*1024*4/10*9 {
 			s.Logger.Warn("response is too large")
 		}
+		s.Logger.Info("send chunks", zap.Int("len", len(chunks)))
 		if err = chunksStreamer.Send(
 			&grpc.GetChunksResponse{
 				Chunks: chunks,
 			},
 		); err != nil {
-			s.Logger.Error("Unable to stream the results")
+			s.Logger.Error("Unable to stream the results", zap.Error(err))
 			return err
 		}
 	}

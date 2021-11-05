@@ -3,10 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/VineethReddy02/cortex-mysql-store/grpc"
-	"github.com/VineethReddy02/cortex-mysql-store/mysql-store"
-	"go.uber.org/zap"
-	g "google.golang.org/grpc"
 	"io/ioutil"
 	"log"
 	"net"
@@ -14,10 +10,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/VineethReddy02/cortex-mysql-store/grpc"
+	mysql_store "github.com/VineethReddy02/cortex-mysql-store/mysql-store"
+
 	"github.com/cortexproject/cortex/pkg/chunk"
 	"github.com/cortexproject/cortex/pkg/util/flagext"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
+	g "google.golang.org/grpc"
 	"gopkg.in/yaml.v2"
 )
 
@@ -54,13 +55,15 @@ func main() {
 		log.Fatalf("Failed to created new storage client")
 	}
 
-	gRPCServerAddress := "localhost:"+strconv.Itoa(cfg.Cfg.GrpcServerPort)
+	gRPCServerAddress := "0.0.0.0:" + strconv.Itoa(cfg.Cfg.GrpcServerPort)
 	lis, err := net.Listen("tcp", gRPCServerAddress)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
 	grpc.RegisterGrpcStoreServer(s, s1)
+
+	log.Printf("serve start with :%d\n", cfg.Cfg.GrpcServerPort)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
